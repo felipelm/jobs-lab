@@ -60,3 +60,13 @@ Additional local run commands:
 make run-api
 make run-worker
 ```
+
+Docker API commands:
+
+```sh
+make docker-build-api
+make docker-run-api
+```
+
+The API container listens on `0.0.0.0:8000` inside the container and is exposed
+on `http://localhost:8000` by the Makefile run target.
