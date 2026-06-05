@@ -20,22 +20,24 @@ jobs-lab/
   tests/
 ```
 
-The deploy directories are placeholders only. This repo intentionally does not
-include Redis, Postgres, Docker, Kubernetes, Helm charts, or OpenTelemetry yet.
+The Kubernetes and Helm deploy directories are placeholders only. This repo
+intentionally does not include Redis, Kubernetes, Helm charts, or OpenTelemetry
+yet.
 
 ## Architecture
 
 The first version keeps the runtime deliberately small:
 
-- `apps/api` exposes `/healthz`, `/readyz`, and an in-memory jobs API.
+- `apps/api` exposes `/healthz`, `/readyz`, and a Postgres-backed jobs API.
 - `apps/worker` contains a standalone process that can execute one example job.
 - `packages/common` owns shared request/response models, configuration, and
   pure job helpers used by both apps.
+- `migrations` owns the Alembic schema migration for the `jobs` table.
 - `tests` verifies the public API behavior and worker behavior.
 
-The current job store is process-local memory. A future lesson can replace that
-boundary with a queue, database, scheduler, or observability layer without
-reshaping the repository.
+The API uses SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures the
+database connection. A future lesson can add a queue, scheduler, or observability
+layer without reshaping the repository.
 
 ## API
 
@@ -44,7 +46,7 @@ reshaping the repository.
 - `GET /jobs` returns all jobs currently held by the API process.
 - `GET /jobs/{job_id}` returns one job or `404`.
 - `GET /healthz` returns process health.
-- `GET /readyz` returns readiness.
+- `GET /readyz` checks database connectivity and returns readiness.
 
 ## Commands
 
@@ -61,6 +63,14 @@ make run-api
 make run-worker
 ```
 
+Database commands:
+
+```sh
+export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/jobs_lab"
+.venv/bin/alembic upgrade head
+make run-api
+```
+
 Docker API commands:
 
 ```sh
@@ -69,4 +79,27 @@ make docker-run-api
 ```
 
 The API container listens on `0.0.0.0:8000` inside the container and is exposed
-on `http://localhost:8000` by the Makefile run target.
+on `http://localhost:8000` by the Makefile run target. Override
+`DOCKER_DATABASE_URL` if your Postgres connection string is different.
+
+Docker Compose local development:
+
+```sh
+make compose-up
+make migrate
+```
+
+Then open `http://localhost:8000/healthz` or `http://localhost:8000/readyz`.
+The Compose API service uses:
+
+```text
+DATABASE_URL=postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+```
+
+Stop the local stack with:
+
+```sh
+make compose-down
+```
+
+Postgres data is stored in the `postgres-data` Docker volume.

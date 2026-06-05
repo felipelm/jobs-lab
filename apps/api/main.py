@@ -1,8 +1,11 @@
-from fastapi import FastAPI, HTTPException, status
+from typing import Annotated
 
-from apps.api.store import InMemoryJobStore
+from fastapi import Depends, FastAPI, HTTPException, status
+
+from apps.api.database import check_database_readiness
+from apps.api.dependencies import get_job_repository
+from apps.api.repository import JobRepository
 from packages.common.config import get_settings
-from packages.common.jobs import create_job
 from packages.common.models import (
     HealthResponse,
     JobCreateRequest,
@@ -14,7 +17,6 @@ from packages.common.models import (
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
-    job_store = InMemoryJobStore()
 
     @app.get("/healthz", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -25,7 +27,15 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/readyz", response_model=ReadinessResponse)
-    def readiness() -> ReadinessResponse:
+    async def readiness(
+        ready: Annotated[bool, Depends(check_database_readiness)],
+    ) -> ReadinessResponse:
+        if not ready:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database not ready",
+            )
+
         return ReadinessResponse(
             service="api",
             status="ready",
@@ -37,16 +47,24 @@ def create_app() -> FastAPI:
         response_model=JobRecord,
         status_code=status.HTTP_202_ACCEPTED,
     )
-    def submit_job(request: JobCreateRequest) -> JobRecord:
-        return job_store.add(create_job(request))
+    async def submit_job(
+        request: JobCreateRequest,
+        repository: Annotated[JobRepository, Depends(get_job_repository)],
+    ) -> JobRecord:
+        return await repository.create(request)
 
     @app.get("/jobs", response_model=list[JobRecord])
-    def list_jobs() -> list[JobRecord]:
-        return job_store.list()
+    async def list_jobs(
+        repository: Annotated[JobRepository, Depends(get_job_repository)],
+    ) -> list[JobRecord]:
+        return await repository.list()
 
     @app.get("/jobs/{job_id}", response_model=JobRecord)
-    def get_job(job_id: str) -> JobRecord:
-        job = job_store.get(job_id)
+    async def get_job(
+        job_id: str,
+        repository: Annotated[JobRepository, Depends(get_job_repository)],
+    ) -> JobRecord:
+        job = await repository.get(job_id)
         if job is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
