@@ -4,7 +4,7 @@ from packages.common.models import JobCreateRequest, JobResult
 
 def process_once() -> JobResult:
     request = JobCreateRequest(
-        kind="example",
+        type="example",
         payload={"message": "hello from worker"},
     )
     job = create_job(request)
@@ -18,4 +18,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

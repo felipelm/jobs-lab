@@ -13,16 +13,17 @@ class JobStatus(StrEnum):
 
 
 class JobCreateRequest(BaseModel):
-    kind: str = Field(min_length=1, max_length=64)
+    type: str = Field(min_length=1, max_length=64)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class JobRecord(BaseModel):
     id: str
-    kind: str
+    type: str
     payload: dict[str, Any]
     status: JobStatus
     created_at: datetime
+    updated_at: datetime
 
 
 class JobResult(BaseModel):
@@ -34,3 +35,9 @@ class HealthResponse(BaseModel):
     service: str
     status: str
     environment: str
+
+
+class ReadinessResponse(BaseModel):
+    service: str
+    status: str
+    ready: bool
