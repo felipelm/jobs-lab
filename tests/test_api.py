@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from apps.api.dependencies import get_job_repository
+from apps.api.dependencies import get_job_queue, get_job_repository
 from apps.api.main import create_app
 from packages.common.database import check_database_readiness
 from packages.common.jobs import create_job
@@ -23,20 +23,41 @@ class FakeJobRepository:
         return self.jobs.get(job_id)
 
 
+class FakeJobQueue:
+    def __init__(self) -> None:
+        self.enqueued_job_ids: list[str] = []
+
+    async def enqueue_job_id(self, job_id: str) -> None:
+        self.enqueued_job_ids.append(job_id)
+
+    async def dequeue_job_id(self, timeout_seconds: float) -> str | None:
+        if not self.enqueued_job_ids:
+            return None
+        return self.enqueued_job_ids.pop(0)
+
+
+class ApiTestContext:
+    def __init__(self, client: TestClient, queue: FakeJobQueue) -> None:
+        self.client = client
+        self.queue = queue
+
+
 def create_test_client(
     ready: bool = True,
-) -> TestClient:
+) -> ApiTestContext:
     app = create_app()
     repository = FakeJobRepository()
+    queue = FakeJobQueue()
 
     app.dependency_overrides[get_job_repository] = lambda: repository
+    app.dependency_overrides[get_job_queue] = lambda: queue
     app.dependency_overrides[check_database_readiness] = lambda: ready
 
-    return TestClient(app)
+    return ApiTestContext(client=TestClient(app), queue=queue)
 
 
 def test_health_endpoint() -> None:
-    client = create_test_client()
+    client = create_test_client().client
 
     response = client.get("/healthz")
 
@@ -49,7 +70,7 @@ def test_health_endpoint() -> None:
 
 
 def test_readiness_endpoint() -> None:
-    client = create_test_client()
+    client = create_test_client().client
 
     response = client.get("/readyz")
 
@@ -62,7 +83,7 @@ def test_readiness_endpoint() -> None:
 
 
 def test_readiness_endpoint_returns_503_when_database_is_unavailable() -> None:
-    client = create_test_client(ready=False)
+    client = create_test_client(ready=False).client
 
     response = client.get("/readyz")
 
@@ -71,7 +92,8 @@ def test_readiness_endpoint_returns_503_when_database_is_unavailable() -> None:
 
 
 def test_submit_job() -> None:
-    client = create_test_client()
+    context = create_test_client()
+    client = context.client
 
     response = client.post(
         "/jobs",
@@ -86,10 +108,11 @@ def test_submit_job() -> None:
     assert body["id"]
     assert body["created_at"]
     assert body["updated_at"]
+    assert context.queue.enqueued_job_ids == [body["id"]]
 
 
 def test_list_jobs_returns_created_jobs() -> None:
-    client = create_test_client()
+    client = create_test_client().client
 
     first = client.post(
         "/jobs",
@@ -107,7 +130,7 @@ def test_list_jobs_returns_created_jobs() -> None:
 
 
 def test_get_job_returns_created_job() -> None:
-    client = create_test_client()
+    client = create_test_client().client
     created = client.post(
         "/jobs",
         json={"type": "email", "payload": {"to": "learner@example.com"}},
@@ -120,7 +143,7 @@ def test_get_job_returns_created_job() -> None:
 
 
 def test_get_job_returns_404_for_unknown_job() -> None:
-    client = create_test_client()
+    client = create_test_client().client
 
     response = client.get("/jobs/missing")
 

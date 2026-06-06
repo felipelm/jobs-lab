@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 
-from apps.api.dependencies import get_job_repository
+from apps.api.dependencies import get_job_queue, get_job_repository
 from packages.common.config import get_settings
 from packages.common.database import check_database_readiness
 from packages.common.models import (
@@ -11,6 +11,7 @@ from packages.common.models import (
     JobRecord,
     ReadinessResponse,
 )
+from packages.common.queue import JobQueue
 from packages.common.repository import JobRepository
 
 
@@ -50,8 +51,11 @@ def create_app() -> FastAPI:
     async def submit_job(
         request: JobCreateRequest,
         repository: Annotated[JobRepository, Depends(get_job_repository)],
+        queue: Annotated[JobQueue, Depends(get_job_queue)],
     ) -> JobRecord:
-        return await repository.create(request)
+        job = await repository.create(request)
+        await queue.enqueue_job_id(job.id)
+        return job
 
     @app.get("/jobs", response_model=list[JobRecord])
     async def list_jobs(

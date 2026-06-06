@@ -18,7 +18,9 @@ class JobRepository(Protocol):
 
 
 class WorkerJobRepository(Protocol):
-    async def claim_queued(self) -> JobRecord | None: ...
+    async def get(self, job_id: str) -> JobRecord | None: ...
+
+    async def mark_running(self, job_id: str) -> JobRecord | None: ...
 
     async def mark_succeeded(self, job_id: str) -> JobRecord | None: ...
 
@@ -51,25 +53,8 @@ class SqlAlchemyJobRepository:
             return None
         return _to_record(db_job)
 
-    async def claim_queued(self) -> JobRecord | None:
-        result = await self._session.execute(
-            select(JobORM)
-            .where(JobORM.status == JobStatus.QUEUED.value)
-            .order_by(JobORM.created_at, JobORM.id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
-        db_job = result.scalar_one_or_none()
-        if db_job is None:
-            await self._session.rollback()
-            return None
-
-        db_job.status = JobStatus.RUNNING.value
-        db_job.updated_at = datetime.now(UTC)
-        await self._session.commit()
-        await self._session.refresh(db_job)
-
-        return _to_record(db_job)
+    async def mark_running(self, job_id: str) -> JobRecord | None:
+        return await self._mark_status(job_id, JobStatus.RUNNING)
 
     async def mark_succeeded(self, job_id: str) -> JobRecord | None:
         return await self._mark_status(job_id, JobStatus.SUCCEEDED)
@@ -115,4 +100,3 @@ def _to_record(job: JobORM) -> JobRecord:
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
-

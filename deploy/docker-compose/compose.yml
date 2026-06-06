@@ -5,11 +5,14 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+      REDIS_URL: redis://redis:6379/0
       JOBS_LAB_ENV: local
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   worker:
@@ -19,10 +22,13 @@ services:
     command: ["python", "-m", "apps.worker.main"]
     environment:
       DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+      REDIS_URL: redis://redis:6379/0
       JOBS_LAB_ENV: local
       JOBS_LAB_WORKER_POLL_INTERVAL_SECONDS: "1"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   postgres:
@@ -37,6 +43,16 @@ services:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobs_lab -d jobs_lab"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5

@@ -21,23 +21,25 @@ jobs-lab/
 ```
 
 The Kubernetes and Helm deploy directories are placeholders only. This repo
-intentionally does not include Redis, Kubernetes, Helm charts, or OpenTelemetry
-yet.
+intentionally does not include Kubernetes, Helm charts, or OpenTelemetry yet.
 
 ## Architecture
 
 The first version keeps the runtime deliberately small:
 
 - `apps/api` exposes `/healthz`, `/readyz`, and a Postgres-backed jobs API.
-- `apps/worker` polls Postgres for queued jobs and executes supported job types.
+- `apps/api` enqueues created job IDs into Redis.
+- `apps/worker` blocks on Redis for job IDs, loads jobs from Postgres, and
+  executes supported job types.
 - `packages/common` owns shared request/response models, configuration, and
   pure job helpers used by both apps.
 - `migrations` owns the Alembic schema migration for the `jobs` table.
 - `tests` verifies the public API behavior and worker behavior.
 
 The API and worker use SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures
-the database connection. A future lesson can add Redis, a scheduler, or
-observability without reshaping the repository.
+the database connection, and `REDIS_URL` configures the queue connection. A
+future lesson can add a scheduler or observability without reshaping the
+repository.
 
 ## API
 
@@ -67,6 +69,7 @@ Database commands:
 
 ```sh
 export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/jobs_lab"
+export REDIS_URL="redis://localhost:6379/0"
 .venv/bin/alembic upgrade head
 make run-api
 ```
@@ -94,6 +97,7 @@ The Compose API and worker services use:
 
 ```text
 DATABASE_URL=postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+REDIS_URL=redis://redis:6379/0
 ```
 
 Create a sleep job for the worker:

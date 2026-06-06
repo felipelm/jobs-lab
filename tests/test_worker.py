@@ -11,20 +11,11 @@ class FakeWorkerRepository:
         self.jobs = {job.id: job for job in jobs}
         self.transitions: list[JobStatus] = []
 
-    async def claim_queued(self) -> JobRecord | None:
-        for job in self.jobs.values():
-            if job.status == JobStatus.QUEUED:
-                running_job = job.model_copy(
-                    update={
-                        "status": JobStatus.RUNNING,
-                        "updated_at": datetime.now(UTC),
-                    }
-                )
-                self.jobs[job.id] = running_job
-                self.transitions.append(JobStatus.RUNNING)
-                return running_job
+    async def get(self, job_id: str) -> JobRecord | None:
+        return self.jobs.get(job_id)
 
-        return None
+    async def mark_running(self, job_id: str) -> JobRecord | None:
+        return self._mark_status(job_id, JobStatus.RUNNING)
 
     async def mark_succeeded(self, job_id: str) -> JobRecord | None:
         return self._mark_status(job_id, JobStatus.SUCCEEDED)
@@ -48,23 +39,53 @@ class FakeWorkerRepository:
         return updated_job
 
 
+class FakeJobQueue:
+    def __init__(self, job_ids: list[str]) -> None:
+        self.job_ids = job_ids
+        self.dequeue_timeouts: list[float] = []
+
+    async def enqueue_job_id(self, job_id: str) -> None:
+        self.job_ids.append(job_id)
+
+    async def dequeue_job_id(self, timeout_seconds: float) -> str | None:
+        self.dequeue_timeouts.append(timeout_seconds)
+        if not self.job_ids:
+            return None
+        return self.job_ids.pop(0)
+
+
 def test_process_one_marks_sleep_job_succeeded() -> None:
     job = create_test_job(type="sleep", payload={"seconds": 0})
     repository = FakeWorkerRepository([job])
+    queue = FakeJobQueue([job.id])
 
-    result = asyncio.run(process_one(repository))
+    result = asyncio.run(
+        process_one(
+            repository=repository,
+            queue=queue,
+            dequeue_timeout_seconds=1,
+        )
+    )
 
     assert result is not None
     assert result.status == JobStatus.SUCCEEDED
     assert repository.transitions == [JobStatus.RUNNING, JobStatus.SUCCEEDED]
     assert repository.jobs[job.id].status == JobStatus.SUCCEEDED
+    assert queue.dequeue_timeouts == [1]
 
 
 def test_process_one_marks_job_failed_on_exception() -> None:
     job = create_test_job(type="sleep", payload={"seconds": -1})
     repository = FakeWorkerRepository([job])
+    queue = FakeJobQueue([job.id])
 
-    result = asyncio.run(process_one(repository))
+    result = asyncio.run(
+        process_one(
+            repository=repository,
+            queue=queue,
+            dequeue_timeout_seconds=1,
+        )
+    )
 
     assert result is not None
     assert result.status == JobStatus.FAILED
@@ -72,17 +93,41 @@ def test_process_one_marks_job_failed_on_exception() -> None:
     assert repository.jobs[job.id].status == JobStatus.FAILED
 
 
-def test_process_one_returns_none_when_no_job_is_queued() -> None:
+def test_process_one_returns_none_when_queue_is_empty() -> None:
+    job = create_test_job(type="sleep", payload={"seconds": 0})
+    repository = FakeWorkerRepository([job])
+    queue = FakeJobQueue([])
+
+    result = asyncio.run(
+        process_one(
+            repository=repository,
+            queue=queue,
+            dequeue_timeout_seconds=1,
+        )
+    )
+
+    assert result is None
+    assert repository.transitions == []
+
+
+def test_process_one_skips_non_queued_job() -> None:
     job = create_test_job(
         type="sleep",
         payload={"seconds": 0},
         status=JobStatus.RUNNING,
     )
     repository = FakeWorkerRepository([job])
+    queue = FakeJobQueue([job.id])
 
-    result = asyncio.run(process_one(repository))
+    result = asyncio.run(
+        process_one(
+            repository=repository,
+            queue=queue,
+            dequeue_timeout_seconds=1,
+        )
+    )
 
-    assert result is None
+    assert result == job
     assert repository.transitions == []
 
 
@@ -100,3 +145,4 @@ def create_test_job(
         created_at=now,
         updated_at=now,
     )
+
