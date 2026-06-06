@@ -26,3 +26,4 @@ class JobORM(Base):
         DateTime(timezone=True),
         nullable=False,
     )
+

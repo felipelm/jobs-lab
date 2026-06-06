@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from packages.common.models import JobCreateRequest, JobRecord, JobResult, JobStatus
+from packages.common.models import JobCreateRequest, JobRecord, JobStatus
 
 
 def create_job(request: JobCreateRequest) -> JobRecord:
@@ -13,17 +13,4 @@ def create_job(request: JobCreateRequest) -> JobRecord:
         status=JobStatus.QUEUED,
         created_at=now,
         updated_at=now,
-    )
-
-
-def run_job(job: JobRecord) -> JobResult:
-    completed_job = job.model_copy(
-        update={
-            "status": JobStatus.SUCCEEDED,
-            "updated_at": datetime.now(UTC),
-        }
-    )
-    return JobResult(
-        job=completed_job,
-        output={"echo": job.payload},
     )

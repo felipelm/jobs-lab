@@ -9,6 +9,7 @@ class Settings:
     app_name: str
     environment: str
     database_url: str
+    worker_poll_interval_seconds: float
 
 
 def get_settings() -> Settings:
@@ -17,6 +18,9 @@ def get_settings() -> Settings:
         environment=os.getenv("JOBS_LAB_ENV", "local"),
         database_url=normalize_database_url(
             os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+        ),
+        worker_poll_interval_seconds=float(
+            os.getenv("JOBS_LAB_WORKER_POLL_INTERVAL_SECONDS", "1")
         ),
     )
 

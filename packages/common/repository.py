@@ -1,11 +1,12 @@
+from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.orm import JobORM
 from packages.common.jobs import create_job
 from packages.common.models import JobCreateRequest, JobRecord, JobStatus
+from packages.common.orm import JobORM
 
 
 class JobRepository(Protocol):
@@ -14,6 +15,14 @@ class JobRepository(Protocol):
     async def list(self) -> list[JobRecord]: ...
 
     async def get(self, job_id: str) -> JobRecord | None: ...
+
+
+class WorkerJobRepository(Protocol):
+    async def claim_queued(self) -> JobRecord | None: ...
+
+    async def mark_succeeded(self, job_id: str) -> JobRecord | None: ...
+
+    async def mark_failed(self, job_id: str) -> JobRecord | None: ...
 
 
 class SqlAlchemyJobRepository:
@@ -40,6 +49,49 @@ class SqlAlchemyJobRepository:
         db_job = await self._session.get(JobORM, job_id)
         if db_job is None:
             return None
+        return _to_record(db_job)
+
+    async def claim_queued(self) -> JobRecord | None:
+        result = await self._session.execute(
+            select(JobORM)
+            .where(JobORM.status == JobStatus.QUEUED.value)
+            .order_by(JobORM.created_at, JobORM.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        db_job = result.scalar_one_or_none()
+        if db_job is None:
+            await self._session.rollback()
+            return None
+
+        db_job.status = JobStatus.RUNNING.value
+        db_job.updated_at = datetime.now(UTC)
+        await self._session.commit()
+        await self._session.refresh(db_job)
+
+        return _to_record(db_job)
+
+    async def mark_succeeded(self, job_id: str) -> JobRecord | None:
+        return await self._mark_status(job_id, JobStatus.SUCCEEDED)
+
+    async def mark_failed(self, job_id: str) -> JobRecord | None:
+        return await self._mark_status(job_id, JobStatus.FAILED)
+
+    async def _mark_status(
+        self,
+        job_id: str,
+        status: JobStatus,
+    ) -> JobRecord | None:
+        db_job = await self._session.get(JobORM, job_id)
+        if db_job is None:
+            await self._session.rollback()
+            return None
+
+        db_job.status = status.value
+        db_job.updated_at = datetime.now(UTC)
+        await self._session.commit()
+        await self._session.refresh(db_job)
+
         return _to_record(db_job)
 
 

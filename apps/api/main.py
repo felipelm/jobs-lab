@@ -2,16 +2,16 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 
-from apps.api.database import check_database_readiness
 from apps.api.dependencies import get_job_repository
-from apps.api.repository import JobRepository
 from packages.common.config import get_settings
+from packages.common.database import check_database_readiness
 from packages.common.models import (
     HealthResponse,
     JobCreateRequest,
     JobRecord,
     ReadinessResponse,
 )
+from packages.common.repository import JobRepository
 
 
 def create_app() -> FastAPI:

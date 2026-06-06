@@ -4,8 +4,8 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from apps.api.orm import Base
 from packages.common.config import get_settings
+from packages.common.orm import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
@@ -54,4 +54,3 @@ else:
     import asyncio
 
     asyncio.run(run_migrations_online())
-

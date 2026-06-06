@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from apps.api.database import check_database_readiness
 from apps.api.dependencies import get_job_repository
 from apps.api.main import create_app
+from packages.common.database import check_database_readiness
 from packages.common.jobs import create_job
 from packages.common.models import JobCreateRequest, JobRecord
 

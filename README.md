@@ -29,15 +29,15 @@ yet.
 The first version keeps the runtime deliberately small:
 
 - `apps/api` exposes `/healthz`, `/readyz`, and a Postgres-backed jobs API.
-- `apps/worker` contains a standalone process that can execute one example job.
+- `apps/worker` polls Postgres for queued jobs and executes supported job types.
 - `packages/common` owns shared request/response models, configuration, and
   pure job helpers used by both apps.
 - `migrations` owns the Alembic schema migration for the `jobs` table.
 - `tests` verifies the public API behavior and worker behavior.
 
-The API uses SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures the
-database connection. A future lesson can add a queue, scheduler, or observability
-layer without reshaping the repository.
+The API and worker use SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures
+the database connection. A future lesson can add Redis, a scheduler, or
+observability without reshaping the repository.
 
 ## API
 
@@ -90,10 +90,18 @@ make migrate
 ```
 
 Then open `http://localhost:8000/healthz` or `http://localhost:8000/readyz`.
-The Compose API service uses:
+The Compose API and worker services use:
 
 ```text
 DATABASE_URL=postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+```
+
+Create a sleep job for the worker:
+
+```sh
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"type":"sleep","payload":{"seconds":2}}'
 ```
 
 Stop the local stack with:

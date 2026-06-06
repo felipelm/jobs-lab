@@ -12,6 +12,19 @@ services:
       postgres:
         condition: service_healthy
 
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    command: ["python", "-m", "apps.worker.main"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
+      JOBS_LAB_ENV: local
+      JOBS_LAB_WORKER_POLL_INTERVAL_SECONDS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -30,4 +43,3 @@ services:
 
 volumes:
   postgres-data:
-

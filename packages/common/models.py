@@ -26,11 +26,6 @@ class JobRecord(BaseModel):
     updated_at: datetime
 
 
-class JobResult(BaseModel):
-    job: JobRecord
-    output: dict[str, Any] = Field(default_factory=dict)
-
-
 class HealthResponse(BaseModel):
     service: str
     status: str
