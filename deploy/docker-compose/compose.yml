@@ -29,11 +29,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       JOBS_LAB_ENV: local
       JOBS_LAB_WORKER_POLL_INTERVAL_SECONDS: "1"
+      OTEL_ENABLED: "${OTEL_ENABLED:-true}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
 
   postgres:
     image: postgres:16-alpine

@@ -156,6 +156,10 @@ curl -X POST http://localhost:8000/jobs \
   -d '{"type":"sleep","payload":{"seconds":2},"max_attempts":3}'
 ```
 
-Then open `http://localhost:16686`, select the `jobs-api` service, and search.
-Outside Compose, `OTEL_ENABLED=true` without `OTEL_EXPORTER_OTLP_ENDPOINT` still
-uses console span export.
+Then open `http://localhost:16686` and search the `jobs-api` and `jobs-worker`
+services. Worker spans include `dequeue`, `load_job`, `process_job`, `retry`,
+`success`, and `failure`, with `job.id`, `job.type`, `job.attempt`, and
+`job.status` attributes. Trace context is not propagated through Redis yet, so
+correlate API and worker traces by `job.id` for now. Outside Compose,
+`OTEL_ENABLED=true` without `OTEL_EXPORTER_OTLP_ENDPOINT` still uses console span
+export for the API.

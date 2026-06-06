@@ -7,6 +7,7 @@ from contextlib import suppress
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
+from apps.worker.telemetry import configure_tracing, get_tracer
 from packages.common.config import get_settings
 from packages.common.database import SessionLocal
 from packages.common.models import JobRecord, JobStatus
@@ -50,11 +51,32 @@ async def process_one(
     queue: JobQueue,
     dequeue_timeout_seconds: float,
 ) -> JobRecord | None:
-    job_id = await queue.dequeue_job_id(timeout_seconds=dequeue_timeout_seconds)
+    tracer = get_tracer()
+
+    with tracer.start_as_current_span("dequeue") as span:
+        try:
+            job_id = await queue.dequeue_job_id(timeout_seconds=dequeue_timeout_seconds)
+        except Exception as exc:
+            span.record_exception(exc)
+            raise
+
+        if job_id is not None:
+            span.set_attribute("job.id", job_id)
+
     if job_id is None:
         return None
 
-    job = await repository.get(job_id)
+    with tracer.start_as_current_span("load_job") as span:
+        span.set_attribute("job.id", job_id)
+        try:
+            job = await repository.get(job_id)
+        except Exception as exc:
+            span.record_exception(exc)
+            raise
+
+        if job is not None:
+            _set_job_attributes(span, job)
+
     if job is None:
         logger.warning("Dequeued job id was not found", extra={"job_id": job_id})
         return None
@@ -66,35 +88,45 @@ async def process_one(
         )
         return job
 
-    running_job = await repository.mark_running(job.id)
-    if running_job is None:
-        logger.warning(
-            "Dequeued job could not be marked running",
-            extra={"job_id": job.id},
-        )
-        return None
+    with tracer.start_as_current_span("process_job") as span:
+        _set_job_attributes(span, job)
+        try:
+            running_job = await repository.mark_running(job.id)
+        except Exception as exc:
+            span.record_exception(exc)
+            raise
 
-    try:
-        await execute_job(running_job)
-    except Exception as exc:
-        error = str(exc)
-        logger.exception(
-            "Job failed",
-            extra={"job_id": running_job.id, "job_type": running_job.type},
-        )
-        if running_job.attempts < running_job.max_attempts:
-            retrying_job = await repository.mark_retrying(running_job.id, error)
-            if retrying_job is not None:
-                await queue.enqueue_job_id(running_job.id)
-            return retrying_job
+        if running_job is None:
+            logger.warning(
+                "Dequeued job could not be marked running",
+                extra={"job_id": job.id},
+            )
+            return None
 
-        return await repository.mark_failed(running_job.id, error)
+        _set_job_attributes(span, running_job)
 
-    return await repository.mark_succeeded(running_job.id)
+        try:
+            await execute_job(running_job)
+        except Exception as exc:
+            span.record_exception(exc)
+            logger.exception(
+                "Job failed",
+                extra={"job_id": running_job.id, "job_type": running_job.type},
+            )
+            if running_job.attempts < running_job.max_attempts:
+                return await _retry_job(repository, queue, running_job, exc)
+
+            return await _fail_job(repository, running_job, exc)
+
+        return await _succeed_job(repository, running_job)
 
 
 async def run_worker() -> None:
     settings = get_settings()
+    configure_tracing(
+        enabled=settings.otel_enabled,
+        otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+    )
     stop_event = asyncio.Event()
     _install_shutdown_handlers(stop_event)
     redis = create_redis_client(settings.redis_url)
@@ -111,6 +143,70 @@ async def run_worker() -> None:
         await redis.aclose()
 
     logger.info("Worker stopped")
+
+
+async def _retry_job(
+    repository: WorkerJobRepository,
+    queue: JobQueue,
+    job: JobRecord,
+    exc: Exception,
+) -> JobRecord | None:
+    tracer = get_tracer()
+    with tracer.start_as_current_span("retry") as span:
+        _set_job_attributes(span, job)
+        span.record_exception(exc)
+        try:
+            retrying_job = await repository.mark_retrying(job.id, str(exc))
+            if retrying_job is not None:
+                _set_job_attributes(span, retrying_job)
+                await queue.enqueue_job_id(job.id)
+            return retrying_job
+        except Exception as state_exc:
+            span.record_exception(state_exc)
+            raise
+
+
+async def _succeed_job(
+    repository: WorkerJobRepository,
+    job: JobRecord,
+) -> JobRecord | None:
+    tracer = get_tracer()
+    with tracer.start_as_current_span("success") as span:
+        _set_job_attributes(span, job)
+        try:
+            succeeded_job = await repository.mark_succeeded(job.id)
+            if succeeded_job is not None:
+                _set_job_attributes(span, succeeded_job)
+            return succeeded_job
+        except Exception as exc:
+            span.record_exception(exc)
+            raise
+
+
+async def _fail_job(
+    repository: WorkerJobRepository,
+    job: JobRecord,
+    exc: Exception,
+) -> JobRecord | None:
+    tracer = get_tracer()
+    with tracer.start_as_current_span("failure") as span:
+        _set_job_attributes(span, job)
+        span.record_exception(exc)
+        try:
+            failed_job = await repository.mark_failed(job.id, str(exc))
+            if failed_job is not None:
+                _set_job_attributes(span, failed_job)
+            return failed_job
+        except Exception as state_exc:
+            span.record_exception(state_exc)
+            raise
+
+
+def _set_job_attributes(span, job: JobRecord) -> None:
+    span.set_attribute("job.id", job.id)
+    span.set_attribute("job.type", job.type)
+    span.set_attribute("job.attempt", job.attempts)
+    span.set_attribute("job.status", job.status.value)
 
 
 async def _process_next_job(
