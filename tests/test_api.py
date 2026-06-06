@@ -39,6 +39,9 @@ class FakeJobQueue:
             return None
         return self.enqueued_job_ids.pop(0)
 
+    async def depth(self) -> int:
+        return len(self.enqueued_job_ids)
+
 
 class ApiTestContext:
     def __init__(self, client: TestClient, queue: FakeJobQueue) -> None:

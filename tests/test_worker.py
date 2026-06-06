@@ -80,6 +80,9 @@ class FakeJobQueue:
             return None
         return self.job_ids.pop(0)
 
+    async def depth(self) -> int:
+        return len(self.job_ids)
+
 
 def test_process_one_marks_sleep_job_succeeded() -> None:
     job = create_test_job(type="sleep", payload={"seconds": 0}, max_attempts=2)

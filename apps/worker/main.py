@@ -2,12 +2,13 @@ import asyncio
 import logging
 import random
 import signal
+import time
 from contextlib import suppress
 
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.worker.telemetry import configure_tracing, get_tracer
+from apps.worker.telemetry import configure_tracing, get_metrics, get_tracer
 from packages.common.config import get_settings
 from packages.common.database import SessionLocal
 from packages.common.models import JobRecord, JobStatus
@@ -53,6 +54,7 @@ async def process_one(
     dequeue_timeout_seconds: float,
 ) -> JobRecord | None:
     tracer = get_tracer()
+    worker_metrics = get_metrics()
 
     with tracer.start_as_current_span("dequeue") as span:
         try:
@@ -63,6 +65,8 @@ async def process_one(
 
         if job_id is not None:
             span.set_attribute("job.id", job_id)
+
+        await _observe_queue_depth(queue, span)
 
     if job_id is None:
         return None
@@ -107,9 +111,14 @@ async def process_one(
 
         _set_job_attributes(span, running_job)
 
+        started_at = time.perf_counter()
         try:
             await execute_job(running_job)
         except Exception as exc:
+            worker_metrics.job_processing_duration_seconds.record(
+                time.perf_counter() - started_at,
+                _metric_attributes(running_job),
+            )
             span.record_exception(exc)
             logger.exception(
                 "Job failed",
@@ -120,6 +129,10 @@ async def process_one(
 
             return await _fail_job(repository, running_job, exc)
 
+        worker_metrics.job_processing_duration_seconds.record(
+            time.perf_counter() - started_at,
+            _metric_attributes(running_job),
+        )
         return await _succeed_job(repository, running_job)
 
 
@@ -162,6 +175,11 @@ async def _retry_job(
             if retrying_job is not None:
                 _set_job_attributes(span, retrying_job)
                 await queue.enqueue_job_id(job.id)
+                await _observe_queue_depth(queue, span)
+                get_metrics().jobs_retried_total.add(
+                    1,
+                    _metric_attributes(retrying_job),
+                )
             return retrying_job
         except Exception as state_exc:
             span.record_exception(state_exc)
@@ -179,6 +197,10 @@ async def _succeed_job(
             succeeded_job = await repository.mark_succeeded(job.id)
             if succeeded_job is not None:
                 _set_job_attributes(span, succeeded_job)
+                get_metrics().jobs_succeeded_total.add(
+                    1,
+                    _metric_attributes(succeeded_job),
+                )
             return succeeded_job
         except Exception as exc:
             span.record_exception(exc)
@@ -198,6 +220,10 @@ async def _fail_job(
             failed_job = await repository.mark_failed(job.id, str(exc))
             if failed_job is not None:
                 _set_job_attributes(span, failed_job)
+                get_metrics().jobs_failed_total.add(
+                    1,
+                    _metric_attributes(failed_job),
+                )
             return failed_job
         except Exception as state_exc:
             span.record_exception(state_exc)
@@ -209,6 +235,20 @@ def _set_job_attributes(span, job: JobRecord) -> None:
     span.set_attribute("job.type", job.type)
     span.set_attribute("job.attempt", job.attempts)
     span.set_attribute("job.status", job.status.value)
+
+
+def _metric_attributes(job: JobRecord) -> dict[str, str]:
+    return {"job.type": job.type}
+
+
+async def _observe_queue_depth(queue: JobQueue, span) -> None:
+    try:
+        queue_depth = await queue.depth()
+    except Exception as exc:
+        span.record_exception(exc)
+        return
+
+    get_metrics().queue_depth.set(queue_depth)
 
 
 async def _process_next_job(

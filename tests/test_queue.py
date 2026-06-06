@@ -20,6 +20,9 @@ class FakeRedis:
             return None
         return key, self.values.pop(0)
 
+    async def llen(self, key: str) -> int:
+        return len(self.values)
+
 
 def test_redis_job_queue_enqueues_and_dequeues_job_id() -> None:
     redis = FakeRedis()
@@ -51,3 +54,12 @@ def test_redis_job_queue_returns_none_when_queue_is_empty() -> None:
 
     assert job_id is None
 
+
+def test_redis_job_queue_returns_queue_depth() -> None:
+    redis = FakeRedis()
+    redis.values.extend(["job-1", "job-2"])
+    queue = RedisJobQueue(redis=redis, queue_name="test-jobs")
+
+    depth = asyncio.run(queue.depth())
+
+    assert depth == 2

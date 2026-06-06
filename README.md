@@ -21,8 +21,7 @@ jobs-lab/
 ```
 
 The Kubernetes and Helm deploy directories are placeholders only. This repo
-intentionally does not include Kubernetes, Helm charts, or an OpenTelemetry
-Collector yet.
+intentionally does not include Kubernetes or Helm charts yet.
 
 ## Architecture
 
@@ -39,14 +38,13 @@ The first version keeps the runtime deliberately small:
 
 The API and worker use SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures
 the database connection, and `REDIS_URL` configures the queue connection. A
-future lesson can add a scheduler or an OpenTelemetry Collector without
-reshaping the repository.
+future lesson can add a scheduler or Grafana without reshaping the repository.
 
 ## API
 
 - `POST /jobs` creates a queued job with an `id`, `type`, `payload`, `status`,
   `attempts`, `max_attempts`, `error`, `created_at`, and `updated_at`.
-- `GET /jobs` returns all jobs currently held by the API process.
+- `GET /jobs` returns all jobs stored in Postgres.
 - `GET /jobs/{job_id}` returns one job or `404`.
 - `GET /healthz` returns process health.
 - `GET /readyz` checks database connectivity and returns readiness.
@@ -140,8 +138,9 @@ The Compose stack enables API tracing by default and starts:
 
 - `otel-collector`, listening for OTLP on `localhost:4317` and `localhost:4318`
 - `jaeger`, with the UI at `http://localhost:16686`
+- `prometheus`, with the UI at `http://localhost:9090`
 
-The API exports OTLP traces to the Collector:
+The API and worker export OTLP telemetry to the Collector:
 
 ```text
 OTEL_ENABLED=true
@@ -165,3 +164,23 @@ Compose, `OTEL_ENABLED=true` without `OTEL_EXPORTER_OTLP_ENDPOINT` still uses
 console span export for the API.
 
 See `docs/gotchas.md` for trace-context caveats.
+
+OpenTelemetry metrics:
+
+The Collector receives OTLP metrics from the API and worker, then exposes a
+Prometheus scrape endpoint on `http://localhost:9464/metrics`. Prometheus
+scrapes that endpoint from inside Compose.
+
+After creating jobs, open `http://localhost:9090`, go to **Status > Targets**,
+and confirm the `otel-collector` target is up. In the Prometheus query UI, try:
+
+```text
+jobs_created_total
+jobs_succeeded_total
+jobs_failed_total
+jobs_retried_total
+job_processing_duration_seconds_bucket
+queue_depth
+```
+
+Grafana is intentionally not included yet.

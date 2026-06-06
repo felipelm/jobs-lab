@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 
 from apps.api.dependencies import get_job_queue, get_job_repository
-from apps.api.telemetry import configure_tracing, get_tracer
+from apps.api.telemetry import configure_tracing, get_metrics, get_tracer
 from packages.common.config import get_settings
 from packages.common.database import check_database_readiness
 from packages.common.models import (
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
         otlp_endpoint=settings.otel_exporter_otlp_endpoint,
     )
     tracer = get_tracer()
+    app_metrics = get_metrics()
 
     @app.get("/healthz", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -81,6 +82,12 @@ def create_app() -> FastAPI:
                 span.record_exception(exc)
                 raise
 
+            queue_depth = await _observe_queue_depth(queue, span)
+
+        app_metrics.jobs_created_total.add(1, {"job.type": job.type})
+        if queue_depth is not None:
+            app_metrics.queue_depth.set(queue_depth)
+
         return job
 
     @app.get("/jobs", response_model=list[JobRecord])
@@ -103,6 +110,14 @@ def create_app() -> FastAPI:
         return job
 
     return app
+
+
+async def _observe_queue_depth(queue: JobQueue, span) -> int | None:
+    try:
+        return await queue.depth()
+    except Exception as exc:
+        span.record_exception(exc)
+        return None
 
 
 app = create_app()

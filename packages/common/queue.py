@@ -10,6 +10,8 @@ class JobQueue(Protocol):
 
     async def dequeue_job_id(self, timeout_seconds: float) -> str | None: ...
 
+    async def depth(self) -> int: ...
+
 
 class RedisJobQueue:
     def __init__(
@@ -22,6 +24,9 @@ class RedisJobQueue:
 
     async def enqueue_job_id(self, job_id: str) -> None:
         await self._redis.rpush(self._queue_name, job_id)
+
+    async def depth(self) -> int:
+        return await self._redis.llen(self._queue_name)
 
     async def dequeue_job_id(self, timeout_seconds: float) -> str | None:
         result = await self._redis.blpop(
@@ -40,4 +45,3 @@ class RedisJobQueue:
 
 def create_redis_client(redis_url: str) -> Redis:
     return Redis.from_url(redis_url, decode_responses=True)
-
