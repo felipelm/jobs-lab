@@ -7,7 +7,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
       REDIS_URL: redis://redis:6379/0
       JOBS_LAB_ENV: local
-      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-true}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -15,6 +16,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
 
   worker:
     build:
@@ -57,6 +60,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    depends_on:
+      jaeger:
+        condition: service_started
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.75.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
 
 volumes:
   postgres-data:

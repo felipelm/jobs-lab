@@ -132,9 +132,30 @@ Postgres data is stored in the `postgres-data` Docker volume.
 OpenTelemetry tracing:
 
 ```sh
-OTEL_ENABLED=true make compose-up
-docker compose -f deploy/docker-compose/compose.yml logs -f api
+make compose-up
+make migrate
 ```
 
-When enabled, the API uses `service.name=jobs-api`, automatic FastAPI
-instrumentation, and console span export. No Collector is configured yet.
+The Compose stack enables API tracing by default and starts:
+
+- `otel-collector`, listening for OTLP on `localhost:4317` and `localhost:4318`
+- `jaeger`, with the UI at `http://localhost:16686`
+
+The API exports OTLP traces to the Collector:
+
+```text
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+```
+
+The Collector exports traces to Jaeger. To generate a trace:
+
+```sh
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"type":"sleep","payload":{"seconds":2},"max_attempts":3}'
+```
+
+Then open `http://localhost:16686`, select the `jobs-api` service, and search.
+Outside Compose, `OTEL_ENABLED=true` without `OTEL_EXPORTER_OTLP_ENDPOINT` still
+uses console span export.

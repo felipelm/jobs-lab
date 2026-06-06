@@ -19,7 +19,11 @@ from packages.common.repository import JobRepository
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
-    configure_tracing(app, enabled=settings.otel_enabled)
+    configure_tracing(
+        app,
+        enabled=settings.otel_enabled,
+        otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+    )
     tracer = get_tracer()
 
     @app.get("/healthz", response_model=HealthResponse)
