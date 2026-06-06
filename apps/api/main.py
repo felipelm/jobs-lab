@@ -14,6 +14,7 @@ from packages.common.models import (
 )
 from packages.common.queue import JobQueue
 from packages.common.repository import JobRepository
+from packages.common.trace_context import capture_current_trace_context
 
 
 def create_app() -> FastAPI:
@@ -62,7 +63,8 @@ def create_app() -> FastAPI:
     ) -> JobRecord:
         with tracer.start_as_current_span("create_job") as span:
             try:
-                job = await repository.create(request)
+                trace_context = capture_current_trace_context()
+                job = await repository.create(request, trace_context=trace_context)
             except Exception as exc:
                 span.record_exception(exc)
                 raise

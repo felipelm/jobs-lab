@@ -27,6 +27,7 @@ class JobRecord(BaseModel):
     attempts: int
     max_attempts: int
     error: str | None
+    trace_context: dict[str, str] = Field(default_factory=dict, exclude=True)
     created_at: datetime
     updated_at: datetime
 

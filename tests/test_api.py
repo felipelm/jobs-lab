@@ -11,8 +11,12 @@ class FakeJobRepository:
     def __init__(self) -> None:
         self.jobs: dict[str, JobRecord] = {}
 
-    async def create(self, request: JobCreateRequest) -> JobRecord:
-        job = create_job(request)
+    async def create(
+        self,
+        request: JobCreateRequest,
+        trace_context: dict[str, str] | None = None,
+    ) -> JobRecord:
+        job = create_job(request, trace_context=trace_context)
         self.jobs[job.id] = job
         return job
 
@@ -112,6 +116,7 @@ def test_submit_job() -> None:
     assert body["attempts"] == 0
     assert body["max_attempts"] == 5
     assert body["error"] is None
+    assert "trace_context" not in body
     assert body["id"]
     assert body["created_at"]
     assert body["updated_at"]

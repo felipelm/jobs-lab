@@ -10,7 +10,11 @@ from packages.common.orm import JobORM
 
 
 class JobRepository(Protocol):
-    async def create(self, request: JobCreateRequest) -> JobRecord: ...
+    async def create(
+        self,
+        request: JobCreateRequest,
+        trace_context: dict[str, str] | None = None,
+    ) -> JobRecord: ...
 
     async def list(self) -> list[JobRecord]: ...
 
@@ -37,8 +41,12 @@ class SqlAlchemyJobRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, request: JobCreateRequest) -> JobRecord:
-        job = create_job(request)
+    async def create(
+        self,
+        request: JobCreateRequest,
+        trace_context: dict[str, str] | None = None,
+    ) -> JobRecord:
+        job = create_job(request, trace_context=trace_context)
         db_job = _to_orm(job)
 
         self._session.add(db_job)
@@ -116,6 +124,7 @@ def _to_orm(job: JobRecord) -> JobORM:
         attempts=job.attempts,
         max_attempts=job.max_attempts,
         error=job.error,
+        trace_context=job.trace_context,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -130,6 +139,7 @@ def _to_record(job: JobORM) -> JobRecord:
         attempts=job.attempts,
         max_attempts=job.max_attempts,
         error=job.error,
+        trace_context=job.trace_context or {},
         created_at=job.created_at,
         updated_at=job.updated_at,
     )

@@ -13,6 +13,7 @@ from packages.common.database import SessionLocal
 from packages.common.models import JobRecord, JobStatus
 from packages.common.queue import JobQueue, RedisJobQueue, create_redis_client
 from packages.common.repository import SqlAlchemyJobRepository, WorkerJobRepository
+from packages.common.trace_context import extract_context
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,8 @@ async def process_one(
         )
         return job
 
-    with tracer.start_as_current_span("process_job") as span:
+    parent_context = extract_context(job.trace_context)
+    with tracer.start_as_current_span("process_job", context=parent_context) as span:
         _set_job_attributes(span, job)
         try:
             running_job = await repository.mark_running(job.id)

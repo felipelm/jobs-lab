@@ -192,6 +192,7 @@ def create_test_job(
     attempts: int = 0,
     max_attempts: int = 3,
     error: str | None = None,
+    trace_context: dict[str, str] | None = None,
 ) -> JobRecord:
     now = datetime.now(UTC)
     return JobRecord(
@@ -202,6 +203,7 @@ def create_test_job(
         attempts=attempts,
         max_attempts=max_attempts,
         error=error,
+        trace_context=trace_context or {},
         created_at=now,
         updated_at=now,
     )
