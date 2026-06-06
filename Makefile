@@ -6,7 +6,7 @@ DOCKER_REDIS_URL ?= redis://host.docker.internal:6379/0
 COMPOSE_FILE ?= deploy/docker-compose/compose.yml
 COMPOSE ?= docker compose -f $(COMPOSE_FILE)
 
-.PHONY: install test lint run-api run-worker docker-build-api docker-run-api compose-up compose-down migrate
+.PHONY: install test lint run-api run-worker docker-build-api docker-run-api compose-up compose-down migrate logs
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -31,6 +31,9 @@ docker-build-api:
 
 docker-run-api:
 	docker run --rm -p 8000:8000 -e DATABASE_URL="$(DOCKER_DATABASE_URL)" -e REDIS_URL="$(DOCKER_REDIS_URL)" $(API_IMAGE)
+
+logs:
+	docker compose -f deploy/docker-compose/compose.yml logs -f api worker redis
 
 compose-up:
 	$(COMPOSE) up --build -d

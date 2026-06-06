@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import signal
 from contextlib import suppress
 
@@ -16,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 
 async def execute_job(job: JobRecord) -> None:
+    if job.type == "always_fail":
+        raise RuntimeError("Job configured to always fail")
+
+    if job.type == "random_fail":
+        probability = job.payload.get("probability", 0.5)
+        if not isinstance(probability, int | float):
+            raise ValueError(
+                "Random fail job payload field 'probability' must be a number"
+            )
+        if probability < 0 or probability > 1:
+            raise ValueError("Random fail probability must be between 0 and 1")
+        if random.random() < probability:
+            raise RuntimeError("Job failed randomly")
+        return
+
     if job.type != "sleep":
         raise ValueError(f"Unsupported job type: {job.type}")
 
@@ -43,9 +59,9 @@ async def process_one(
         logger.warning("Dequeued job id was not found", extra={"job_id": job_id})
         return None
 
-    if job.status != JobStatus.QUEUED:
+    if job.status not in {JobStatus.QUEUED, JobStatus.RETRYING}:
         logger.info(
-            "Dequeued job is not queued",
+            "Dequeued job is not processable",
             extra={"job_id": job.id, "job_status": job.status},
         )
         return job
@@ -60,12 +76,19 @@ async def process_one(
 
     try:
         await execute_job(running_job)
-    except Exception:
+    except Exception as exc:
+        error = str(exc)
         logger.exception(
             "Job failed",
             extra={"job_id": running_job.id, "job_type": running_job.type},
         )
-        return await repository.mark_failed(running_job.id)
+        if running_job.attempts < running_job.max_attempts:
+            retrying_job = await repository.mark_retrying(running_job.id, error)
+            if retrying_job is not None:
+                await queue.enqueue_job_id(running_job.id)
+            return retrying_job
+
+        return await repository.mark_failed(running_job.id, error)
 
     return await repository.mark_succeeded(running_job.id)
 

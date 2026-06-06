@@ -97,7 +97,11 @@ def test_submit_job() -> None:
 
     response = client.post(
         "/jobs",
-        json={"type": "email", "payload": {"to": "learner@example.com"}},
+        json={
+            "type": "email",
+            "payload": {"to": "learner@example.com"},
+            "max_attempts": 5,
+        },
     )
 
     assert response.status_code == 202
@@ -105,6 +109,9 @@ def test_submit_job() -> None:
     assert body["type"] == "email"
     assert body["payload"] == {"to": "learner@example.com"}
     assert body["status"] == "queued"
+    assert body["attempts"] == 0
+    assert body["max_attempts"] == 5
+    assert body["error"] is None
     assert body["id"]
     assert body["created_at"]
     assert body["updated_at"]

@@ -44,7 +44,7 @@ repository.
 ## API
 
 - `POST /jobs` creates a queued job with an `id`, `type`, `payload`, `status`,
-  `created_at`, and `updated_at`.
+  `attempts`, `max_attempts`, `error`, `created_at`, and `updated_at`.
 - `GET /jobs` returns all jobs currently held by the API process.
 - `GET /jobs/{job_id}` returns one job or `404`.
 - `GET /healthz` returns process health.
@@ -105,7 +105,19 @@ Create a sleep job for the worker:
 ```sh
 curl -X POST http://localhost:8000/jobs \
   -H "Content-Type: application/json" \
-  -d '{"type":"sleep","payload":{"seconds":2}}'
+  -d '{"type":"sleep","payload":{"seconds":2},"max_attempts":3}'
+```
+
+Simulate failures:
+
+```sh
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"type":"always_fail","payload":{},"max_attempts":3}'
+
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"type":"random_fail","payload":{"probability":0.5},"max_attempts":3}'
 ```
 
 Stop the local stack with:

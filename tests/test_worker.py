@@ -15,15 +15,41 @@ class FakeWorkerRepository:
         return self.jobs.get(job_id)
 
     async def mark_running(self, job_id: str) -> JobRecord | None:
-        return self._mark_status(job_id, JobStatus.RUNNING)
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None
+
+        updated_job = job.model_copy(
+            update={
+                "status": JobStatus.RUNNING,
+                "attempts": job.attempts + 1,
+                "error": None,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.jobs[job_id] = updated_job
+        self.transitions.append(JobStatus.RUNNING)
+        return updated_job
+
+    async def mark_retrying(self, job_id: str, error: str) -> JobRecord | None:
+        return self._mark_status(job_id, JobStatus.RETRYING, error=error)
 
     async def mark_succeeded(self, job_id: str) -> JobRecord | None:
-        return self._mark_status(job_id, JobStatus.SUCCEEDED)
+        return self._mark_status(job_id, JobStatus.SUCCEEDED, error=None)
 
-    async def mark_failed(self, job_id: str) -> JobRecord | None:
-        return self._mark_status(job_id, JobStatus.FAILED)
+    async def mark_failed(
+        self,
+        job_id: str,
+        error: str | None = None,
+    ) -> JobRecord | None:
+        return self._mark_status(job_id, JobStatus.FAILED, error=error)
 
-    def _mark_status(self, job_id: str, status: JobStatus) -> JobRecord | None:
+    def _mark_status(
+        self,
+        job_id: str,
+        status: JobStatus,
+        error: str | None,
+    ) -> JobRecord | None:
         job = self.jobs.get(job_id)
         if job is None:
             return None
@@ -31,6 +57,7 @@ class FakeWorkerRepository:
         updated_job = job.model_copy(
             update={
                 "status": status,
+                "error": error,
                 "updated_at": datetime.now(UTC),
             }
         )
@@ -55,7 +82,7 @@ class FakeJobQueue:
 
 
 def test_process_one_marks_sleep_job_succeeded() -> None:
-    job = create_test_job(type="sleep", payload={"seconds": 0})
+    job = create_test_job(type="sleep", payload={"seconds": 0}, max_attempts=2)
     repository = FakeWorkerRepository([job])
     queue = FakeJobQueue([job.id])
 
@@ -70,12 +97,36 @@ def test_process_one_marks_sleep_job_succeeded() -> None:
     assert result is not None
     assert result.status == JobStatus.SUCCEEDED
     assert repository.transitions == [JobStatus.RUNNING, JobStatus.SUCCEEDED]
+    assert result.attempts == 1
+    assert result.error is None
     assert repository.jobs[job.id].status == JobStatus.SUCCEEDED
     assert queue.dequeue_timeouts == [1]
 
 
-def test_process_one_marks_job_failed_on_exception() -> None:
-    job = create_test_job(type="sleep", payload={"seconds": -1})
+def test_process_one_retries_and_requeues_when_attempts_remain() -> None:
+    job = create_test_job(type="always_fail", payload={}, max_attempts=2)
+    repository = FakeWorkerRepository([job])
+    queue = FakeJobQueue([job.id])
+
+    result = asyncio.run(
+        process_one(
+            repository=repository,
+            queue=queue,
+            dequeue_timeout_seconds=1,
+        )
+    )
+
+    assert result is not None
+    assert result.status == JobStatus.RETRYING
+    assert result.attempts == 1
+    assert result.error == "Job configured to always fail"
+    assert repository.transitions == [JobStatus.RUNNING, JobStatus.RETRYING]
+    assert repository.jobs[job.id].status == JobStatus.RETRYING
+    assert queue.job_ids == [job.id]
+
+
+def test_process_one_marks_job_failed_when_attempts_are_exhausted() -> None:
+    job = create_test_job(type="always_fail", payload={}, max_attempts=1)
     repository = FakeWorkerRepository([job])
     queue = FakeJobQueue([job.id])
 
@@ -89,8 +140,11 @@ def test_process_one_marks_job_failed_on_exception() -> None:
 
     assert result is not None
     assert result.status == JobStatus.FAILED
+    assert result.attempts == 1
+    assert result.error == "Job configured to always fail"
     assert repository.transitions == [JobStatus.RUNNING, JobStatus.FAILED]
     assert repository.jobs[job.id].status == JobStatus.FAILED
+    assert queue.job_ids == []
 
 
 def test_process_one_returns_none_when_queue_is_empty() -> None:
@@ -135,6 +189,9 @@ def create_test_job(
     type: str,
     payload: dict[str, object],
     status: JobStatus = JobStatus.QUEUED,
+    attempts: int = 0,
+    max_attempts: int = 3,
+    error: str | None = None,
 ) -> JobRecord:
     now = datetime.now(UTC)
     return JobRecord(
@@ -142,7 +199,9 @@ def create_test_job(
         type=type,
         payload=payload,
         status=status,
+        attempts=attempts,
+        max_attempts=max_attempts,
+        error=error,
         created_at=now,
         updated_at=now,
     )
-
