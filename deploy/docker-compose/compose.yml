@@ -7,6 +7,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@postgres:5432/jobs_lab
       REDIS_URL: redis://redis:6379/0
       JOBS_LAB_ENV: local
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:

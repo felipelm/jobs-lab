@@ -11,6 +11,7 @@ class Settings:
     environment: str
     database_url: str
     redis_url: str
+    otel_enabled: bool
     worker_poll_interval_seconds: float
 
 
@@ -22,6 +23,7 @@ def get_settings() -> Settings:
             os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
         ),
         redis_url=os.getenv("REDIS_URL", DEFAULT_REDIS_URL),
+        otel_enabled=parse_bool(os.getenv("OTEL_ENABLED", "false")),
         worker_poll_interval_seconds=float(
             os.getenv("JOBS_LAB_WORKER_POLL_INTERVAL_SECONDS", "1")
         ),
@@ -36,3 +38,7 @@ def normalize_database_url(database_url: str) -> str:
         return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
     return database_url
+
+
+def parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}

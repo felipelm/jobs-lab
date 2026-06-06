@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 
 from apps.api.dependencies import get_job_queue, get_job_repository
+from apps.api.telemetry import configure_tracing, get_tracer
 from packages.common.config import get_settings
 from packages.common.database import check_database_readiness
 from packages.common.models import (
@@ -18,6 +19,8 @@ from packages.common.repository import JobRepository
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
+    configure_tracing(app, enabled=settings.otel_enabled)
+    tracer = get_tracer()
 
     @app.get("/healthz", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -53,8 +56,25 @@ def create_app() -> FastAPI:
         repository: Annotated[JobRepository, Depends(get_job_repository)],
         queue: Annotated[JobQueue, Depends(get_job_queue)],
     ) -> JobRecord:
-        job = await repository.create(request)
-        await queue.enqueue_job_id(job.id)
+        with tracer.start_as_current_span("create_job") as span:
+            try:
+                job = await repository.create(request)
+            except Exception as exc:
+                span.record_exception(exc)
+                raise
+
+            span.set_attribute("job.id", job.id)
+            span.set_attribute("job.type", job.type)
+
+        with tracer.start_as_current_span("enqueue_job") as span:
+            span.set_attribute("job.id", job.id)
+            span.set_attribute("job.type", job.type)
+            try:
+                await queue.enqueue_job_id(job.id)
+            except Exception as exc:
+                span.record_exception(exc)
+                raise
+
         return job
 
     @app.get("/jobs", response_model=list[JobRecord])

@@ -21,7 +21,8 @@ jobs-lab/
 ```
 
 The Kubernetes and Helm deploy directories are placeholders only. This repo
-intentionally does not include Kubernetes, Helm charts, or OpenTelemetry yet.
+intentionally does not include Kubernetes, Helm charts, or an OpenTelemetry
+Collector yet.
 
 ## Architecture
 
@@ -38,8 +39,8 @@ The first version keeps the runtime deliberately small:
 
 The API and worker use SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures
 the database connection, and `REDIS_URL` configures the queue connection. A
-future lesson can add a scheduler or observability without reshaping the
-repository.
+future lesson can add a scheduler or an OpenTelemetry Collector without
+reshaping the repository.
 
 ## API
 
@@ -83,7 +84,7 @@ make docker-run-api
 
 The API container listens on `0.0.0.0:8000` inside the container and is exposed
 on `http://localhost:8000` by the Makefile run target. Override
-`DOCKER_DATABASE_URL` if your Postgres connection string is different.
+`DOCKER_DATABASE_URL`, `DOCKER_REDIS_URL`, or `OTEL_ENABLED` if needed.
 
 Docker Compose local development:
 
@@ -127,3 +128,13 @@ make compose-down
 ```
 
 Postgres data is stored in the `postgres-data` Docker volume.
+
+OpenTelemetry tracing:
+
+```sh
+OTEL_ENABLED=true make compose-up
+docker compose -f deploy/docker-compose/compose.yml logs -f api
+```
+
+When enabled, the API uses `service.name=jobs-api`, automatic FastAPI
+instrumentation, and console span export. No Collector is configured yet.
