@@ -39,7 +39,8 @@ The first version keeps the runtime deliberately small:
 
 The API and worker use SQLAlchemy async with `asyncpg`. `DATABASE_URL` configures
 the database connection, and `REDIS_URL` configures the queue connection. A
-future lesson can add a scheduler or Grafana without reshaping the repository.
+future lesson can add a scheduler, alerting, or Kubernetes worker deployment
+without reshaping the repository.
 
 ## API
 
@@ -181,6 +182,7 @@ The Compose stack enables API tracing by default and starts:
 - `otel-collector`, listening for OTLP on `localhost:4317` and `localhost:4318`
 - `jaeger`, with the UI at `http://localhost:16686`
 - `prometheus`, with the UI at `http://localhost:9090`
+- `grafana`, with the UI at `http://localhost:3000`
 
 The API and worker export OTLP telemetry to the Collector:
 
@@ -225,4 +227,22 @@ job_processing_duration_seconds_bucket
 queue_depth
 ```
 
-Grafana is intentionally not included yet.
+Grafana dashboards:
+
+The Compose stack provisions Grafana with a Prometheus datasource and a `Jobs
+Lab Overview` dashboard. Open `http://localhost:3000` and log in with:
+
+```text
+username: admin
+password: admin
+```
+
+Then open **Dashboards > Jobs Lab > Jobs Lab Overview**. The starter dashboard
+includes panels for job counts, failures, retries, queue depth, and processing
+duration. You can override the local credentials with:
+
+```sh
+GRAFANA_ADMIN_USER=admin GRAFANA_ADMIN_PASSWORD=secret make compose-up
+```
+
+Grafana is intentionally not added to Kubernetes yet.
