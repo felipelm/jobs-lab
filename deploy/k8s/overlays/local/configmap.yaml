@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobs-lab-api-config
+data:
+  JOBS_LAB_ENV: local-k8s
+  DATABASE_URL: postgresql+asyncpg://jobs_lab:jobs_lab@host.docker.internal:5432/jobs_lab
+  REDIS_URL: redis://host.docker.internal:6379/0

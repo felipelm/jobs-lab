@@ -20,8 +20,9 @@ jobs-lab/
   tests/
 ```
 
-The Kubernetes and Helm deploy directories are placeholders only. This repo
-intentionally does not include Kubernetes or Helm charts yet.
+The Helm deploy directory is a placeholder only. Kubernetes currently includes
+a local API-only deployment; it does not deploy Postgres, Redis, the worker, or
+OpenTelemetry.
 
 ## Architecture
 
@@ -126,6 +127,47 @@ make compose-down
 ```
 
 Postgres data is stored in the `postgres-data` Docker volume.
+
+## Local Kubernetes
+
+The local Kubernetes manifests deploy only the API. The local overlay configures
+the API to reach Postgres and Redis outside the cluster through
+`host.docker.internal`; it does not create those services in Kubernetes.
+
+Create a kind cluster:
+
+```sh
+kind create cluster --name jobs-lab
+```
+
+Build the API image:
+
+```sh
+docker build -f apps/api/Dockerfile -t jobs-lab-api:local .
+```
+
+Load the image into kind:
+
+```sh
+kind load docker-image jobs-lab-api:local --name jobs-lab
+```
+
+Apply the local overlay:
+
+```sh
+kubectl apply -k deploy/k8s/overlays/local
+kubectl -n jobs-lab rollout status deployment/jobs-lab-api
+```
+
+Port-forward the API service:
+
+```sh
+kubectl -n jobs-lab port-forward service/jobs-lab-api 8000:8000
+```
+
+Then open `http://localhost:8000/healthz`. The `/readyz` endpoint and job
+creation still require reachable external Postgres and Redis instances because
+those are intentionally not deployed in Kubernetes yet.
 
 OpenTelemetry tracing:
 

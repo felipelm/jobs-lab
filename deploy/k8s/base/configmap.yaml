@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobs-lab-api-config
+data:
+  JOBS_LAB_APP_NAME: Jobs Lab
+  JOBS_LAB_ENV: kubernetes
